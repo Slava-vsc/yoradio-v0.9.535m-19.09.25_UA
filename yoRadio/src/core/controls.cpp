@@ -11,6 +11,12 @@ long encOldPosition  = 0;
 long enc2OldPosition  = 0;
 int lpId = -1;
 
+// ЗМІННІ АВТОПІДТВЕРДЖЕННЯ ENCODER2
+unsigned long lastEnc2Activity = 0;
+const unsigned long ENC2_AUTO_CONFIRM_DELAY = 3000; // 3 секунди
+bool enc2WaitingForConfirm = false;
+uint16_t enc2PendingStation = 0;
+
 #define ISPUSHBUTTONS BTN_LEFT!=255 || BTN_CENTER!=255 || BTN_RIGHT!=255 || ENC_BTNB!=255 || BTN_UP!=255 || BTN_DOWN!=255 || ENC2_BTNB!=255 || BTN_MODE!=255
 #if ISPUSHBUTTONS
 #include "../OneButton/OneButton.h"
@@ -133,6 +139,19 @@ void loopControls() {
   if(display.mode()==UPDATING || display.mode()==SDCHANGE) return;
   if(SDC_CS==255 && display.mode()==LOST) return;
   if(ctrls_on_loop) ctrls_on_loop();
+  
+  // АВТОМАТИЧНЕ ПІДТВЕРДЖЕННЯ ВИБОРУ СТАНЦІЇ ЧЕРЕЗ 3 СЕКУНДИ
+  if(enc2WaitingForConfirm && display.mode() == STATIONS) {
+    if(millis() - lastEnc2Activity >= ENC2_AUTO_CONFIRM_DELAY) {
+      enc2WaitingForConfirm = false;
+      display.putRequest(NEWMODE, PLAYER);
+      #ifdef DSP_LCD
+        delay(200);
+      #endif
+      player.sendCommand({PR_PLAY, enc2PendingStation});
+    }
+  }
+  
 #if ENC_BTNL!=255
   encoder1Loop();
 #endif
@@ -179,15 +198,19 @@ void encodersLoop(yoEncoder *enc, bool first){
     if(first){
       controlsEvent(encoderDelta > 0, encoderDelta);
     }else{
+      // ЕНКОДЕР2 - ОПЕРАЦІЯ АВТОПІДТВЕРДЖЕННЯ
       if (encBtnState == HIGH && display.mode() == PLAYER) {
-        if(config.store.skipPlaylistUpDown){
-          if(encoderDelta > 0) player.next(); else player.prev();
-          return;
-        }
         display.putRequest(NEWMODE, STATIONS);
         while(display.mode() != STATIONS) {delay(10);}
       }
       controlsEvent(encoderDelta > 0, encoderDelta);
+      
+      // Оновлення таймера для енкодера2
+      if(display.mode() == STATIONS) {
+        lastEnc2Activity = millis();
+        enc2WaitingForConfirm = true;
+        enc2PendingStation = display.currentPlItem;
+      }
     }
 #   endif
   }
